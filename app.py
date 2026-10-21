@@ -7,6 +7,8 @@ from pvlib import solarposition, irradiance
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import math
+from datetime import datetime
+import pytz
 
 # Page Configuration
 st.set_page_config(
@@ -30,13 +32,12 @@ st.markdown("""
         border: 1px solid #2e3440;
         text-align: center;
     }
-    .status-active {
-        color: #00e676;
-        font-weight: bold;
-    }
-    .status-idle {
-        color: #ff5252;
-        font-weight: bold;
+    .status-badge {
+        background-color: #1a2332;
+        border: 1px solid #2d3748;
+        border-radius: 10px;
+        padding: 12px 20px;
+        margin-bottom: 20px;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -265,12 +266,18 @@ def render_2d_panel_simulation(zenith, optimal_tilt, t_cell, cooling_active, ghi
 # ---------------------------------------------------------
 # UI STREAMLIT APPLICATION
 # ---------------------------------------------------------
-# Top Bar Header
-st.title("☀️ AI SolarTwin: Sensorless Digital Twin v2.4")
+# App Header
+st.title("☀️ AI SolarTwin: Sensorless Digital Twin Dashboard")
 st.caption("Physics-Informed Real-Time Solar Tilt & Liquid-Cooling Dynamic Optimization Engine")
 
+# Current Live IST Date & Time Calculation
+tz_ist = pytz.timezone("Asia/Kolkata")
+now_ist = datetime.now(tz_ist)
+current_date_str = now_ist.strftime("%B %d, %Y")
+current_time_str = now_ist.strftime("%I:%M:%S %p IST")
+
 # Controls Header Bar
-col_loc, col_status = st.columns([2, 1])
+col_loc, col_empty = st.columns([2, 1])
 with col_loc:
     selected_loc_name = st.selectbox("📍 Select Target Location:", list(LOCATIONS.keys()))
     loc = LOCATIONS[selected_loc_name]
@@ -280,12 +287,34 @@ df_raw = fetch_open_meteo_live(loc['lat'], loc['lon'])
 df_twin = run_digital_twin_engine(df_raw, loc['lat'], loc['lon'])
 
 # Extract Live Current Hour State
-now_ist = pd.Timestamp.now(tz='Asia/Kolkata').tz_localize(None)
-closest_idx = df_twin.index.get_indexer([now_ist], method='nearest')[0]
+closest_idx = df_twin.index.get_indexer([now_ist.replace(tzinfo=None)], method='nearest')[0]
 live_state = df_twin.iloc[closest_idx]
 
+# Prominent Live Date & Time Status Bar
+st.markdown(f"""
+<div class="status-badge">
+    <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+        <div>
+            <span style="font-size: 0.9em; color: #a0aec0; text-transform: uppercase; letter-spacing: 1px;">📅 Current Date</span><br/>
+            <strong style="font-size: 1.2em; color: #ffffff;">{current_date_str}</strong>
+        </div>
+        <div>
+            <span style="font-size: 0.9em; color: #a0aec0; text-transform: uppercase; letter-spacing: 1px;">🕒 Live Time (IST)</span><br/>
+            <strong style="font-size: 1.2em; color: #00e676;">{current_time_str}</strong>
+        </div>
+        <div>
+            <span style="font-size: 0.9em; color: #a0aec0; text-transform: uppercase; letter-spacing: 1px;">☀️ Sun Zenith Angle</span><br/>
+            <strong style="font-size: 1.2em; color: #ffd54f;">{live_state['zenith']:.2f}°</strong>
+        </div>
+        <div>
+            <span style="font-size: 0.9em; color: #a0aec0; text-transform: uppercase; letter-spacing: 1px;">🧭 Sun Azimuth</span><br/>
+            <strong style="font-size: 1.2em; color: #29b6f6;">{live_state['azimuth']:.2f}°</strong>
+        </div>
+    </div>
+</div>
+""", unsafe_allow_html=True)
+
 # Display Live Digital Twin Metrics Card
-st.markdown("---")
 st.subheader("🔴 Live Physics & Sensorless Model State")
 
 m1, m2, m3, m4, m5 = st.columns(5)
