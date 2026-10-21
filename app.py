@@ -6,53 +6,18 @@ import pvlib
 from pvlib import solarposition, irradiance
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
-import math
-from datetime import datetime
-import pytz
 
-# Page Configuration
 st.set_page_config(
-    page_title="AI SolarTwin | Sensorless Digital Twin v2.4",
+    page_title="AI SolarTwin | Digital Twin Dashboard",
     page_icon="☀️",
-    layout="wide",
-    initial_sidebar_state="collapsed"
+    layout="wide"
 )
 
-# Custom CSS for dark theme aesthetic styling
-st.markdown("""
-<style>
-    .main {
-        background-color: #0e1117;
-        color: #ffffff;
-    }
-    .metric-card {
-        background-color: #1e222d;
-        border-radius: 12px;
-        padding: 15px;
-        border: 1px solid #2e3440;
-        text-align: center;
-    }
-    .status-badge {
-        background-color: #1a2332;
-        border: 1px solid #2d3748;
-        border-radius: 10px;
-        padding: 12px 20px;
-        margin-bottom: 20px;
-    }
-</style>
-""", unsafe_allow_html=True)
-
 # ---------------------------------------------------------
-# LOCATION DATA & API FETCH
+# DATA FETCHING (Open-Meteo API for VIT Chennai)
 # ---------------------------------------------------------
-LOCATIONS = {
-    "VIT Chennai (12.8406° N, 80.1534° E)": {"lat": 12.8406, "lon": 80.1534},
-    "VIT Vellore (12.9692° N, 79.1559° E)": {"lat": 12.9692, "lon": 79.1559}
-}
-
 @st.cache_data(ttl=600)
-def fetch_open_meteo_live(lat, lon):
-    """Fetches live 24h & forecast solar meteorological data from Open-Meteo."""
+def fetch_open_meteo_live(lat=12.8406, lon=80.1534):
     url = "https://api.open-meteo.com/v1/forecast"
     params = {
         "latitude": lat,
@@ -62,43 +27,26 @@ def fetch_open_meteo_live(lat, lon):
         "forecast_days": 2,
         "timezone": "Asia/Kolkata"
     }
-    try:
-        res = requests.get(url, params=params, timeout=10).json()
-        hourly = res['hourly']
-        
-        df = pd.DataFrame({
-            'timestamp': pd.to_datetime(hourly['time']),
-            'temp_air': hourly['temperature_2m'],
-            'wind_speed': hourly['wind_speed_10m'],
-            'ghi': hourly['shortwave_radiation'],
-            'dni': hourly['direct_normal_irradiance'],
-            'dhi': hourly['diffuse_radiation']
-        }).set_index('timestamp')
-        return df
-    except Exception as e:
-        st.error(f"Error fetching live weather data: {e}")
-        # Generate synthetic fallback data
-        times = pd.date_range(end=pd.Timestamp.now(tz='Asia/Kolkata').tz_localize(None), periods=48, freq='h')
-        return pd.DataFrame({
-            'temp_air': np.random.uniform(28, 38, 48),
-            'wind_speed': np.random.uniform(1.5, 4.5, 48),
-            'ghi': np.maximum(0, 800 * np.sin(np.linspace(0, 4*np.pi, 48))),
-            'dni': np.maximum(0, 900 * np.sin(np.linspace(0, 4*np.pi, 48))),
-            'dhi': np.maximum(0, 200 * np.sin(np.linspace(0, 4*np.pi, 48)))
-        }, index=times)
+    res = requests.get(url, params=params).json()
+    hourly = res['hourly']
+    
+    df = pd.DataFrame({
+        'timestamp': pd.to_datetime(hourly['time']),
+        'temp_air': hourly['temperature_2m'],
+        'wind_speed': hourly['wind_speed_10m'],
+        'ghi': hourly['shortwave_radiation'],
+        'dni': hourly['direct_normal_irradiance'],
+        'dhi': hourly['diffuse_radiation']
+    }).set_index('timestamp')
+    return df
 
-# ---------------------------------------------------------
-# PHYSICS & DIGITAL TWIN ENGINE
-# ---------------------------------------------------------
 def simulate_pv_power(poa, t_cell, is_cooled):
-    """Faiman model thermal prediction and temperature coefficient power loss."""
     t_effective = np.maximum(t_cell - 18.0, 25.0) if is_cooled else t_cell
     temp_loss = 1 - 0.004 * (t_effective - 25.0)
     p_out = 400.0 * (poa / 1000.0) * temp_loss
     return np.maximum(p_out, 0.0)
 
-def run_digital_twin_engine(df, lat, lon):
-    """Calculates baseline vs AI dynamic optimization for tilt and cooling."""
+def run_digital_twin_engine(df, lat=12.8406, lon=80.1534):
     results = []
     PUMP_POWER_W = 15.0
     
@@ -132,231 +80,135 @@ def run_digital_twin_engine(df, lat, lon):
             'ghi': row['ghi'],
             'temp_air': row['temp_air'],
             'wind_speed': row['wind_speed'],
-            'zenith': zenith,
-            'azimuth': azimuth,
             't_cell_predicted': t_cell_opt,
             'optimal_tilt': opt_tilt,
             'cooling_active': cooling_on,
             'p_base_W': p_base,
-            'p_net_W': p_net
+            'p_net_W': p_net,
+            'zenith': zenith,
+            'azimuth': azimuth
         })
         
     return pd.DataFrame(results).set_index('timestamp')
 
 # ---------------------------------------------------------
-# 2D PHYSICS SIMULATION VISUALIZER (PLOTLY SHAPES)
+# UI STREAMLIT RENDERER
 # ---------------------------------------------------------
-def render_2d_panel_simulation(zenith, optimal_tilt, t_cell, cooling_active, ghi):
-    """Draws dynamic 2D visual representation of the solar panel, sun path, and liquid cooling."""
-    fig = go.Figure()
-    
-    # Sky Background & Sun Trajectory Arc
-    arc_x = [100 * math.cos(rad) for rad in np.linspace(0, math.pi, 100)]
-    arc_y = [100 * math.sin(rad) for rad in np.linspace(0, math.pi, 100)]
-    fig.add_trace(go.Scatter(x=arc_x, y=arc_y, mode='lines', line=dict(color='#2c3e50', width=2, dash='dash'), showlegend=False))
-    
-    # Sun Angle Calculation (Zenith to 2D polar plot)
-    sun_angle_deg = 180 - np.clip(zenith, 5, 175)
-    sun_rad = math.radians(sun_angle_deg)
-    sun_x = 90 * math.cos(sun_rad)
-    sun_y = 90 * math.sin(sun_rad)
-    
-    # Render Sun Glow & Center Body
-    if ghi > 5:
-        fig.add_trace(go.Scatter(
-            x=[sun_x], y=[sun_y],
-            mode='markers',
-            marker=dict(size=40, color='gold', opacity=0.8, line=dict(color='#ffea00', width=4)),
-            name='Sun Position',
-            hoverinfo='text',
-            text=[f"Sun Zenith Angle: {zenith:.1f}°"]
-        ))
-    else:
-        # Night mode
-        fig.add_trace(go.Scatter(
-            x=[0], y=[90],
-            mode='markers',
-            marker=dict(size=25, color='#7f8c8d', opacity=0.5),
-            name='Night (Sun Below Horizon)',
-            hoverinfo='text',
-            text=["Night Time"]
-        ))
-
-    # Solar Panel Geometry & Rotation Logic
-    panel_tilt = optimal_tilt if ghi > 5 else 13.0
-    panel_rad = math.radians(panel_tilt)
-    half_len = 35.0
-    
-    # Center mounting pivot point
-    px0, py0 = 0.0, 15.0 
-    
-    # Calculate end coordinates for tilted panel board
-    dx = half_len * math.cos(panel_rad)
-    dy = half_len * math.sin(panel_rad)
-    
-    p1_x, p1_y = px0 - dx, py0 - dy
-    p2_x, p2_y = px0 + dx, py0 + dy
-    
-    # Determine Heat Gradient Color based on Cell Temp
-    if cooling_active:
-        panel_color = '#00e676' # Cool Active Cyan/Green
-    elif t_cell > 55:
-        panel_color = '#ff1744' # Critical Hot Red
-    elif t_cell > 42:
-        panel_color = '#ff9100' # Warm Amber
-    else:
-        panel_color = '#29b6f6' # Normal Blue
-        
-    # Draw Panel Surface Line
-    fig.add_trace(go.Scatter(
-        x=[p1_x, p2_x], y=[p1_y, p2_y],
-        mode='lines+markers',
-        line=dict(color=panel_color, width=12),
-        marker=dict(size=8, color='#ffffff'),
-        name='PV Panel Array',
-        hoverinfo='text',
-        text=[f"Tilt: {panel_tilt:.1f}° | Cell Temp: {t_cell:.1f}°C"]
-    ))
-    
-    # Draw Panel Stand Base Structure
-    fig.add_trace(go.Scatter(
-        x=[0, -10, 10, 0], y=[15, 0, 0, 15],
-        mode='lines',
-        fill='toself',
-        fillcolor='#37474f',
-        line=dict(color='#263238', width=2),
-        showlegend=False
-    ))
-    
-    # Draw Incident Sun Rays
-    if ghi > 5:
-        fig.add_trace(go.Scatter(
-            x=[sun_x, px0], y=[sun_y, py0],
-            mode='lines',
-            line=dict(color='#ffd54f', width=2, dash='dot'),
-            name='Solar Radiation Rays'
-        ))
-        
-    # Active Cooling Liquid Spray Visualizer
-    if cooling_active:
-        # Generate fluid spray particles along panel surface
-        spray_x = np.linspace(p1_x, p2_x, 15)
-        spray_y = np.linspace(p1_y, p2_y, 15) + np.random.uniform(2, 5, 15)
-        fig.add_trace(go.Scatter(
-            x=spray_x, y=spray_y,
-            mode='markers',
-            marker=dict(size=8, color='#00e5ff', symbol='droplet', opacity=0.8),
-            name='Liquid Cooling Spray'
-        ))
-
-    # Layout styling for clean dark component integration
-    fig.update_layout(
-        title=f"<b>Physical Panel Twin & Dynamic Solar Tracking</b> (Tilt: {panel_tilt:.1f}° | Cell Temp: {t_cell:.1f}°C)",
-        xaxis=dict(range=[-110, 110], visible=False),
-        yaxis=dict(range=[-10, 115], visible=False),
-        height=380,
-        margin=dict(l=10, r=10, t=50, b=10),
-        paper_bgcolor='rgba(0,0,0,0)',
-        plot_bgcolor='rgba(14,17,23,0.8)',
-        showlegend=True,
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
-    )
-    return fig
-
-# ---------------------------------------------------------
-# UI STREAMLIT APPLICATION
-# ---------------------------------------------------------
-# App Header
 st.title("☀️ AI SolarTwin: Sensorless Digital Twin Dashboard")
-st.caption("Physics-Informed Real-Time Solar Tilt & Liquid-Cooling Dynamic Optimization Engine")
+st.caption("Live Sensorless Solar Optimization Engine | Coordinates: VIT Chennai (12.8406° N, 80.1534° E)")
 
-# Current Live IST Date & Time Calculation
-tz_ist = pytz.timezone("Asia/Kolkata")
-now_ist = datetime.now(tz_ist)
-current_date_str = now_ist.strftime("%B %d, %Y")
-current_time_str = now_ist.strftime("%I:%M:%S %p IST")
+df_raw = fetch_open_meteo_live()
+df_twin = run_digital_twin_engine(df_raw)
 
-# Controls Header Bar
-col_loc, col_empty = st.columns([2, 1])
-with col_loc:
-    selected_loc_name = st.selectbox("📍 Select Target Location:", list(LOCATIONS.keys()))
-    loc = LOCATIONS[selected_loc_name]
-
-# Run Simulation Engine
-df_raw = fetch_open_meteo_live(loc['lat'], loc['lon'])
-df_twin = run_digital_twin_engine(df_raw, loc['lat'], loc['lon'])
-
-# Extract Live Current Hour State
-closest_idx = df_twin.index.get_indexer([now_ist.replace(tzinfo=None)], method='nearest')[0]
+# Get current hour reading
+now_ist = pd.Timestamp.now(tz='Asia/Kolkata').tz_localize(None)
+closest_idx = df_twin.index.get_indexer([now_ist], method='nearest')[0]
 live_state = df_twin.iloc[closest_idx]
+live_time_str = df_twin.index[closest_idx].strftime('%B %d, %Y - %I:%M %p IST')
 
-# Prominent Live Date & Time Status Bar
-st.markdown(f"""
-<div class="status-badge">
-    <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
-        <div>
-            <span style="font-size: 0.9em; color: #a0aec0; text-transform: uppercase; letter-spacing: 1px;">📅 Current Date</span><br/>
-            <strong style="font-size: 1.2em; color: #ffffff;">{current_date_str}</strong>
-        </div>
-        <div>
-            <span style="font-size: 0.9em; color: #a0aec0; text-transform: uppercase; letter-spacing: 1px;">🕒 Live Time (IST)</span><br/>
-            <strong style="font-size: 1.2em; color: #00e676;">{current_time_str}</strong>
-        </div>
-        <div>
-            <span style="font-size: 0.9em; color: #a0aec0; text-transform: uppercase; letter-spacing: 1px;">☀️ Sun Zenith Angle</span><br/>
-            <strong style="font-size: 1.2em; color: #ffd54f;">{live_state['zenith']:.2f}°</strong>
-        </div>
-        <div>
-            <span style="font-size: 0.9em; color: #a0aec0; text-transform: uppercase; letter-spacing: 1px;">🧭 Sun Azimuth</span><br/>
-            <strong style="font-size: 1.2em; color: #29b6f6;">{live_state['azimuth']:.2f}°</strong>
-        </div>
-    </div>
-</div>
-""", unsafe_allow_html=True)
+# Live Time Badge
+st.info(f"🕒 **Current Simulation Timestamp:** {live_time_str} | **Sun Zenith:** {live_state['zenith']:.1f}° | **Sun Azimuth:** {live_state['azimuth']:.1f}°")
 
-# Display Live Digital Twin Metrics Card
-st.subheader("🔴 Live Physics & Sensorless Model State")
-
-m1, m2, m3, m4, m5 = st.columns(5)
-m1.metric("Live Irradiance (GHI)", f"{live_state['ghi']:.1f} W/m²")
-m2.metric("Ambient Temp", f"{live_state['temp_air']:.1f} °C")
-m3.metric("Predicted Cell Temp", f"{live_state['t_cell_predicted']:.1f} °C")
-m4.metric("AI Optimal Tilt", f"{live_state['optimal_tilt']:.1f}°")
-m5.metric("Cooling Pump Status", "🟢 ACTIVE" if live_state['cooling_active'] else "🔴 IDLE")
-
-# Render Interactive 2D Physical Simulation
 st.markdown("---")
-fig_2d = render_2d_panel_simulation(
-    zenith=live_state['zenith'],
-    optimal_tilt=live_state['optimal_tilt'],
-    t_cell=live_state['t_cell_predicted'],
-    cooling_active=live_state['cooling_active'],
-    ghi=live_state['ghi']
+st.subheader("🔴 Live Meteorological & Physics Model Readings")
+
+c1, c2, c3, c4, c5 = st.columns(5)
+c1.metric("Live GHI (Irradiance)", f"{live_state['ghi']:.1f} W/m²")
+c2.metric("Ambient Temp", f"{live_state['temp_air']:.1f} °C")
+c3.metric("Predicted Cell Temp", f"{live_state['t_cell_predicted']:.1f} °C")
+c4.metric("AI Optimal Tilt", f"{live_state['optimal_tilt']:.1f}°")
+c5.metric("Cooling Pump", "🟢 ACTIVE" if live_state['cooling_active'] else "🔴 IDLE")
+
+# ---------------------------------------------------------
+# ENERGY SAVINGS & EFFICIENCY METRICS
+# ---------------------------------------------------------
+total_energy_base_kWh = df_twin['p_base_W'].sum() / 1000.0
+total_energy_ai_kWh = df_twin['p_net_W'].sum() / 1000.0
+energy_saved_kWh = total_energy_ai_kWh - total_energy_base_kWh
+efficiency_gain_pct = ((total_energy_ai_kWh - total_energy_base_kWh) / total_energy_base_kWh) * 100.0 if total_energy_base_kWh > 0 else 0.0
+
+st.markdown("---")
+st.subheader("⚡ Energy Generation & AI Efficiency Savings")
+
+m1, m2, m3, m4 = st.columns(4)
+m1.metric("Fixed Baseline Output", f"{total_energy_base_kWh:.2f} kWh")
+m2.metric("AI Twin Net Output", f"{total_energy_ai_kWh:.2f} kWh")
+m3.metric("Extra Energy Saved/Gained", f"+{energy_saved_kWh:.2f} kWh", delta=f"{energy_saved_kWh:.2f} kWh")
+m4.metric("AI Efficiency Boost", f"+{efficiency_gain_pct:.1f}%", delta=f"{efficiency_gain_pct:.1f}%")
+
+# ---------------------------------------------------------
+# 2D PHYSICAL PANEL & FLUID DYNAMICS VISUALIZER
+# ---------------------------------------------------------
+st.markdown("---")
+st.subheader("🖥️ Physical Panel Twin & Fluid Dynamics")
+
+tilt_rad = np.radians(live_state['optimal_tilt'])
+panel_len = 4.0
+px = [ -panel_len/2 * np.cos(tilt_rad), panel_len/2 * np.cos(tilt_rad) ]
+py = [ -panel_len/2 * np.sin(tilt_rad), panel_len/2 * np.sin(tilt_rad) ]
+
+# Sun coordinates along arc
+sun_zenith = np.clip(live_state['zenith'], 0, 90)
+sun_angle_rad = np.radians(90 - sun_zenith)
+sun_x = 5 * np.cos(sun_angle_rad)
+sun_y = 5 * np.sin(sun_angle_rad)
+
+fig_twin = go.Figure()
+
+# Solar Trajectory Arc
+arc_theta = np.linspace(0, np.pi, 50)
+fig_twin.add_trace(go.Scatter(x=5*np.cos(arc_theta), y=5*np.sin(arc_theta), mode='lines', line=dict(color='gray', dash='dot', width=1), showlegend=False))
+
+# Sun Ray Lines
+fig_twin.add_trace(go.Scatter(x=[sun_x, 0], y=[sun_y, 0], mode='lines', line=dict(color='orange', dash='dash', width=2), name="Solar Rays"))
+
+# Sun Marker
+fig_twin.add_trace(go.Scatter(x=[sun_x], y=[sun_y], mode='markers+text', marker=dict(size=28, color='gold'), text=["☀️ Sun"], textposition="top center", name="Sun Position"))
+
+# Physical Solar Panel
+fig_twin.add_trace(go.Scatter(x=px, y=py, mode='lines+markers', line=dict(color='#00bc8c', width=10), name=f"Solar Panel (Tilt: {live_state['optimal_tilt']:.1f}°)"))
+
+# Ground & Stand Base
+fig_twin.add_trace(go.Scatter(x=[-5, 5], y=[-0.2, -0.2], mode='lines', line=dict(color='#7f8c8d', width=3), showlegend=False))
+fig_twin.add_trace(go.Scatter(x=[0, 0], y=[-0.2, 0], mode='lines', line=dict(color='#7f8c8d', width=4), showlegend=False))
+
+# Cooling Spray Simulation
+if live_state['cooling_active']:
+    drop_x = np.linspace(px[0], px[1], 10)
+    drop_y = np.linspace(py[0], py[1], 10) + 0.3
+    fig_twin.add_trace(go.Scatter(x=drop_x, y=drop_y, mode='markers', marker=dict(size=8, color='#3498db', symbol='droplet'), name="Liquid Cooling Spray"))
+
+fig_twin.update_layout(
+    xaxis=dict(range=[-6, 6], visible=False),
+    yaxis=dict(range=[-1, 6], visible=False),
+    height=380,
+    margin=dict(l=20, r=20, t=20, b=20),
+    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
 )
-st.plotly_chart(fig_2d, use_container_width=True)
 
-# Analytics Curves & Performance Graphs
+st.plotly_chart(fig_twin, use_container_width=True)
+
+# ---------------------------------------------------------
+# TIME SERIES ANALYTICS & CHARTS
+# ---------------------------------------------------------
 st.markdown("---")
-st.subheader("📈 Time-Series Optimization Curves")
+st.subheader("📈 Time Series Analytics & Optimization Curves")
 
-fig_ts = make_subplots(
+fig = make_subplots(
     rows=2, cols=1, shared_xaxes=True,
-    subplot_titles=('Power Generation Performance: Baseline (13° Fixed) vs AI Twin (Watts)', 'Panel Cell Temperature (°C) & Active Thermal Management'),
+    subplot_titles=('Power Output Generation: Baseline vs AI Twin (Watts)', 'Predicted Panel Cell Temperature (°C)'),
     vertical_spacing=0.12
 )
 
-# Power Curve
-fig_ts.add_trace(go.Scatter(x=df_twin.index, y=df_twin['p_base_W'], name='Fixed Baseline (13°)', line=dict(color='gray', dash='dash')), row=1, col=1)
-fig_ts.add_trace(go.Scatter(x=df_twin.index, y=df_twin['p_net_W'], name='AI Net Power Output', line=dict(color='#00e676', width=2.5)), row=1, col=1)
+fig.add_trace(go.Scatter(x=df_twin.index, y=df_twin['p_base_W'], name='Fixed Baseline (13°)', line=dict(color='gray', dash='dash')), row=1, col=1)
+fig.add_trace(go.Scatter(x=df_twin.index, y=df_twin['p_net_W'], name='AI Net Power Output', line=dict(color='#00bc8c', width=2)), row=1, col=1)
 
-# Temperature Curve
-fig_ts.add_trace(go.Scatter(x=df_twin.index, y=df_twin['t_cell_predicted'], name='Predicted Cell Temp', line=dict(color='#ff1744')), row=2, col=1)
-fig_ts.add_trace(go.Scatter(x=df_twin.index, y=df_twin['temp_air'], name='Ambient Air Temp', line=dict(color='#ff9100', dash='dot')), row=2, col=1)
+fig.add_trace(go.Scatter(x=df_twin.index, y=df_twin['t_cell_predicted'], name='Predicted Cell Temp', line=dict(color='#e74c3c')), row=2, col=1)
+fig.add_trace(go.Scatter(x=df_twin.index, y=df_twin['temp_air'], name='Ambient Temp', line=dict(color='orange', dash='dot')), row=2, col=1)
 
-# Current Time Highlight Line
 current_ts = df_twin.index[closest_idx]
-fig_ts.add_vline(x=current_ts, line_width=2, line_dash="solid", line_color="#29b6f6")
-fig_ts.add_annotation(x=current_ts, y=1.0, yref="paper", text="Current Live Hour", showarrow=True, arrowhead=2, arrowcolor="#29b6f6")
+fig.add_vline(x=current_ts, line_width=2, line_dash="solid", line_color="blue")
+fig.add_annotation(x=current_ts, y=1.0, yref="paper", text="Current Simulation Hour", showarrow=True, arrowhead=2, arrowcolor="blue")
 
-fig_ts.update_layout(height=520, margin=dict(t=30, b=20), paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(14,17,23,0.8)')
-st.plotly_chart(fig_ts, use_container_width=True)
+fig.update_layout(height=520, margin=dict(t=40, b=20))
+st.plotly_chart(fig, use_container_width=True)
