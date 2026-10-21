@@ -224,13 +224,13 @@ sun_y = 5.0 * np.sin(sun_angle_progress) + 0.5
 dx = (panel_len / 2.0) * np.cos(tilt_rad)
 dy = (panel_len / 2.0) * np.sin(tilt_rad)
 
-# Correct tilt orientation matching sun side
+# Correct face orientation: panel slopes up towards the sun
 if sun_x < 0:
     px = [-dx, dx]
-    py = [pivot_y + dy, pivot_y - dy]  # Left side tilts up toward sun
+    py = [pivot_y - dy, pivot_y + dy]  # Left side lower, right side higher (faces left/sun)
 else:
     px = [-dx, dx]
-    py = [pivot_y - dy, pivot_y + dy]  # Right side tilts up toward sun
+    py = [pivot_y + dy, pivot_y - dy]  # Left side higher, right side lower (faces right/sun)
 
 fig_twin = go.Figure()
 arc_theta = np.linspace(0, np.pi, 50)
@@ -282,7 +282,7 @@ fig.update_layout(height=520, margin=dict(t=40, b=20))
 st.plotly_chart(fig, use_container_width=True)
 
 # ---------------------------------------------------------
-# HISTORY LOG TABLE & CSV DOWNLOAD
+# HISTORY LOG BOOK & CSV DOWNLOAD
 # ---------------------------------------------------------
 log_df = pd.DataFrame({
     'Timestamp': df_filtered.index.strftime('%Y-%m-%d %H:%M'),
