@@ -226,12 +226,12 @@ sun_y = 5 * np.sin(sun_angle_rad) + 0.5
 dx = (panel_len / 2.0) * np.cos(tilt_rad)
 dy = (panel_len / 2.0) * np.sin(tilt_rad)
 
-# Flip panel slope orientation depending on sun position so it always tilts towards the sun
+# Correct orientation: Face panel surface directly towards sun position
 if sun_x < 0:
     px = [-dx, dx]
     py = [pivot_y - dy, pivot_y + dy]
 else:
-    px = [dx, -dx]
+    px = [-dx, dx]
     py = [pivot_y + dy, pivot_y - dy]
 
 fig_twin = go.Figure()
