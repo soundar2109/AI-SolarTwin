@@ -137,30 +137,32 @@ m3.metric("Extra Energy Saved/Gained", f"+{energy_saved_kWh:.2f} kWh", delta=f"{
 m4.metric("AI Efficiency Boost", f"+{efficiency_gain_pct:.1f}%", delta=f"{efficiency_gain_pct:.1f}%")
 
 # ---------------------------------------------------------
-# 2D PHYSICAL PANEL & FLUID DYNAMICS VISUALIZER
+# 2D PHYSICAL PANEL & FLUID DYNAMICS VISUALIZER (FIXED)
 # ---------------------------------------------------------
 st.markdown("---")
 st.subheader("🖥️ Physical Panel Twin & Fluid Dynamics")
 
 tilt_rad = np.radians(live_state['optimal_tilt'])
 panel_len = 4.0
+pivot_y = 1.5  # Elevated pivot mount above ground
+
 px = [ -panel_len/2 * np.cos(tilt_rad), panel_len/2 * np.cos(tilt_rad) ]
-py = [ -panel_len/2 * np.sin(tilt_rad), panel_len/2 * np.sin(tilt_rad) ]
+py = [ pivot_y - panel_len/2 * np.sin(tilt_rad), pivot_y + panel_len/2 * np.sin(tilt_rad) ]
 
 # Sun coordinates along arc
 sun_zenith = np.clip(live_state['zenith'], 0, 90)
 sun_angle_rad = np.radians(90 - sun_zenith)
 sun_x = 5 * np.cos(sun_angle_rad)
-sun_y = 5 * np.sin(sun_angle_rad)
+sun_y = 5 * np.sin(sun_angle_rad) + 0.5
 
 fig_twin = go.Figure()
 
 # Solar Trajectory Arc
 arc_theta = np.linspace(0, np.pi, 50)
-fig_twin.add_trace(go.Scatter(x=5*np.cos(arc_theta), y=5*np.sin(arc_theta), mode='lines', line=dict(color='gray', dash='dot', width=1), showlegend=False))
+fig_twin.add_trace(go.Scatter(x=5*np.cos(arc_theta), y=5*np.sin(arc_theta)+0.5, mode='lines', line=dict(color='gray', dash='dot', width=1), showlegend=False))
 
 # Sun Ray Lines
-fig_twin.add_trace(go.Scatter(x=[sun_x, 0], y=[sun_y, 0], mode='lines', line=dict(color='orange', dash='dash', width=2), name="Solar Rays"))
+fig_twin.add_trace(go.Scatter(x=[sun_x, 0], y=[sun_y, pivot_y], mode='lines', line=dict(color='orange', dash='dash', width=2), name="Solar Rays"))
 
 # Sun Marker
 fig_twin.add_trace(go.Scatter(x=[sun_x], y=[sun_y], mode='markers+text', marker=dict(size=28, color='gold'), text=["☀️ Sun"], textposition="top center", name="Sun Position"))
@@ -168,9 +170,9 @@ fig_twin.add_trace(go.Scatter(x=[sun_x], y=[sun_y], mode='markers+text', marker=
 # Physical Solar Panel
 fig_twin.add_trace(go.Scatter(x=px, y=py, mode='lines+markers', line=dict(color='#00bc8c', width=10), name=f"Solar Panel (Tilt: {live_state['optimal_tilt']:.1f}°)"))
 
-# Ground & Stand Base
+# Ground & Mounting Stand Base
 fig_twin.add_trace(go.Scatter(x=[-5, 5], y=[-0.2, -0.2], mode='lines', line=dict(color='#7f8c8d', width=3), showlegend=False))
-fig_twin.add_trace(go.Scatter(x=[0, 0], y=[-0.2, 0], mode='lines', line=dict(color='#7f8c8d', width=4), showlegend=False))
+fig_twin.add_trace(go.Scatter(x=[0, 0], y=[-0.2, pivot_y], mode='lines', line=dict(color='#7f8c8d', width=5), showlegend=False))
 
 # Cooling Spray Simulation
 if live_state['cooling_active']:
@@ -180,7 +182,7 @@ if live_state['cooling_active']:
 
 fig_twin.update_layout(
     xaxis=dict(range=[-6, 6], visible=False),
-    yaxis=dict(range=[-1, 6], visible=False),
+    yaxis=dict(range=[-1, 7], visible=False),
     height=380,
     margin=dict(l=20, r=20, t=20, b=20),
     legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
