@@ -224,13 +224,12 @@ sun_y = 5.0 * np.sin(sun_angle_progress) + 0.5
 dx = (panel_len / 2.0) * np.cos(tilt_rad)
 dy = (panel_len / 2.0) * np.sin(tilt_rad)
 
-# Correct face orientation: panel slopes up towards the sun
 if sun_x < 0:
     px = [-dx, dx]
-    py = [pivot_y - dy, pivot_y + dy]  # Left side lower, right side higher (faces left/sun)
+    py = [pivot_y - dy, pivot_y + dy]
 else:
     px = [-dx, dx]
-    py = [pivot_y + dy, pivot_y - dy]  # Left side higher, right side lower (faces right/sun)
+    py = [pivot_y + dy, pivot_y - dy]
 
 fig_twin = go.Figure()
 arc_theta = np.linspace(0, np.pi, 50)
@@ -244,7 +243,7 @@ fig_twin.add_trace(go.Scatter(x=[0, 0], y=[-0.2, pivot_y], mode='lines', line=di
 if live_state['cooling_active']:
     drop_x = np.linspace(px[0], px[1], 10)
     drop_y = np.linspace(py[0], py[1], 10) + 0.3
-    fig_twin.add_trace(go.Scatter(x=drop_x, y=drop_y, mode='markers', marker=dict(size=8, color='#3498db', symbol='droplet'), name="Liquid Cooling Spray"))
+    fig_twin.add_trace(go.Scatter(x=drop_x, y=drop_y, mode='markers', marker=dict(size=8, color='#3498db', symbol='circle'), name="Liquid Cooling Spray"))
 
 fig_twin.update_layout(
     xaxis=dict(range=[-6, 6], visible=False),
@@ -282,7 +281,7 @@ fig.update_layout(height=520, margin=dict(t=40, b=20))
 st.plotly_chart(fig, use_container_width=True)
 
 # ---------------------------------------------------------
-# HISTORY LOG BOOK & CSV DOWNLOAD
+# HISTORY LOG TABLE & CSV DOWNLOAD
 # ---------------------------------------------------------
 log_df = pd.DataFrame({
     'Timestamp': df_filtered.index.strftime('%Y-%m-%d %H:%M'),
