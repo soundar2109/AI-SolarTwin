@@ -1,4 +1,3 @@
-
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -8,10 +7,17 @@ from pvlib import solarposition, irradiance
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
-print("📦 Packages loaded successfully!\n")
+st.set_page_config(
+    page_title="AI SolarTwin | Digital Twin Dashboard",
+    page_icon="☀️",
+    layout="wide"
+)
 
-# 2. Fetch Live & Historical Data from Open-Meteo for VIT Chennai
-def fetch_solar_data(lat=12.8406, lon=80.1534):
+# ---------------------------------------------------------
+# DATA FETCHING (Open-Meteo API for VIT Chennai)
+# ---------------------------------------------------------
+@st.cache_data(ttl=600)
+def fetch_open_meteo_live(lat=12.8406, lon=80.1534):
     url = "https://api.open-meteo.com/v1/forecast"
     params = {
         "latitude": lat,
@@ -34,14 +40,13 @@ def fetch_solar_data(lat=12.8406, lon=80.1534):
     }).set_index('timestamp')
     return df
 
-# 3. Physics & Digital Twin Engine
 def simulate_pv_power(poa, t_cell, is_cooled):
     t_effective = np.maximum(t_cell - 18.0, 25.0) if is_cooled else t_cell
     temp_loss = 1 - 0.004 * (t_effective - 25.0)
     p_out = 400.0 * (poa / 1000.0) * temp_loss
     return np.maximum(p_out, 0.0)
 
-def run_digital_twin(df, lat=12.8406, lon=80.1534):
+def run_digital_twin_engine(df, lat=12.8406, lon=80.1534):
     results = []
     PUMP_POWER_W = 15.0
     
@@ -84,32 +89,37 @@ def run_digital_twin(df, lat=12.8406, lon=80.1534):
         
     return pd.DataFrame(results).set_index('timestamp')
 
-# Execute Data Pipeline
-df_raw = fetch_solar_data()
-df_twin = run_digital_twin(df_raw)
+# ---------------------------------------------------------
+# UI STREAMLIT RENDERER
+# ---------------------------------------------------------
+st.title("☀️ AI SolarTwin: Sensorless Digital Twin Dashboard")
+st.caption("Live Sensorless Solar Optimization Engine | Coordinates: VIT Chennai (12.8406° N, 80.1534° E)")
 
-# Extract Live Current Hour Reading
+df_raw = fetch_open_meteo_live()
+df_twin = run_digital_twin_engine(df_raw)
+
+# Get current hour reading
 now_ist = pd.Timestamp.now(tz='Asia/Kolkata').tz_localize(None)
 closest_idx = df_twin.index.get_indexer([now_ist], method='nearest')[0]
-live = df_twin.iloc[closest_idx]
+live_state = df_twin.iloc[closest_idx]
 
-print("="*65)
-print("              ☀️ AI SOLARTWIN: LIVE DIGITAL TWIN STATE              ")
-print("="*65)
-print(f"Location               : VIT Chennai (12.8406° N, 80.1534° E)")
-print(f"Timestamp (IST)        : {df_twin.index[closest_idx]}")
-print(f"Live Solar Irradiance  : {live['ghi']:.1f} W/m²")
-print(f"Ambient Air Temp       : {live['temp_air']:.1f} °C")
-print(f"Predicted Cell Temp    : {live['t_cell_predicted']:.1f} °C (Faiman Model)")
-print(f"🎯 AI Optimal Tilt     : {live['optimal_tilt']:.1f}°")
-print(f"💧 Liquid Cooling Pump : {'🟢 ACTIVE (Net Positive Gain)' if live['cooling_active'] else '🔴 IDLE'}")
-print(f"⚡ Baseline vs AI Power : {live['p_base_W']:.1f} W  --->  {live['p_net_W']:.1f} W")
-print("="*65)
+st.markdown("---")
+st.subheader("🔴 Live Meteorological & Physics Model Readings")
 
-# 4. Render Interactive Plotly Dashboard inside Colab
+c1, c2, c3, c4, c5 = st.columns(5)
+c1.metric("Live GHI (Irradiance)", f"{live_state['ghi']:.1f} W/m²")
+c2.metric("Ambient Temp", f"{live_state['temp_air']:.1f} °C")
+c3.metric("Predicted Cell Temp", f"{live_state['t_cell_predicted']:.1f} °C")
+c4.metric("AI Optimal Tilt", f"{live_state['optimal_tilt']:.1f}°")
+c5.metric("Cooling Pump", "🟢 ACTIVE" if live_state['cooling_active'] else "🔴 IDLE")
+
+# Analytics Section
+st.markdown("---")
+st.subheader("📈 Time Series Analytics & Optimization Curve")
+
 fig = make_subplots(
     rows=2, cols=1, shared_xaxes=True,
-    subplot_titles=('Power Output Generation: Baseline vs AI Twin (Watts)', 'Predicted Panel Cell Temperature (°C) & Cooling Thresholds'),
+    subplot_titles=('Power Output Generation: Baseline vs AI Twin (Watts)', 'Predicted Panel Cell Temperature (°C)'),
     vertical_spacing=0.12
 )
 
@@ -119,24 +129,9 @@ fig.add_trace(go.Scatter(x=df_twin.index, y=df_twin['p_net_W'], name='AI Net Pow
 fig.add_trace(go.Scatter(x=df_twin.index, y=df_twin['t_cell_predicted'], name='Predicted Cell Temp', line=dict(color='#e74c3c')), row=2, col=1)
 fig.add_trace(go.Scatter(x=df_twin.index, y=df_twin['temp_air'], name='Ambient Temp', line=dict(color='orange', dash='dot')), row=2, col=1)
 
-# Highlight Current Time Vertical Line & Annotation
 current_ts = df_twin.index[closest_idx]
-fig.add_vline(
-    x=current_ts, 
-    line_width=2, 
-    line_dash="solid", 
-    line_color="blue"
-)
+fig.add_vline(x=current_ts, line_width=2, line_dash="solid", line_color="blue")
+fig.add_annotation(x=current_ts, y=1.0, yref="paper", text="Current Live Hour", showarrow=True, arrowhead=2, arrowcolor="blue")
 
-fig.add_annotation(
-    x=current_ts,
-    y=1.0,
-    yref="paper",
-    text="Current Live Hour",
-    showarrow=True,
-    arrowhead=2,
-    arrowcolor="blue"
-)
-
-fig.update_layout(height=550, title_text="<b>AI SolarTwin: Live Sensorless Digital Twin Analytics</b>", margin=dict(t=50, b=20))
-fig.show()
+fig.update_layout(height=520, margin=dict(t=40, b=20))
+st.plotly_chart(fig, use_container_width=True)
