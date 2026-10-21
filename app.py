@@ -58,12 +58,10 @@ def run_digital_twin_engine(df, lat=12.8406, lon=80.1534):
         zenith = solpos['zenith'].iloc[0]
         azimuth = solpos['azimuth'].iloc[0]
         
-        # Baseline (Fixed 13° Tilt, South-facing 180° Azimuth, Uncooled)
         poa_base = irradiance.get_total_irradiance(13, 180, row['dni'], row['ghi'], row['dhi'], zenith, azimuth)['poa_global']
         t_cell_base = row['temp_air'] + (poa_base / (25.0 + 1.2 * row['wind_speed']))
         p_base = simulate_pv_power(poa_base, t_cell_base, False)
         
-        # AI Digital Twin Optimization
         opt_tilt = np.clip(zenith * 0.85, 0, 50) if zenith < 85 else 13.0
         tilt_delta = abs(opt_tilt - prev_tilt)
         tilt_energy_w = tilt_delta * ACTUATOR_POWER_PER_DEG
@@ -150,7 +148,6 @@ now_ist = pd.Timestamp.now(tz='Asia/Kolkata')
 live_state = compute_instantaneous_state(now_ist, df_raw)
 live_time_str = now_ist.strftime('%B %d, %Y - %I:%M %p IST')
 
-# Live Time Badge
 st.info(f"🕒 **Current Simulation Timestamp:** {live_time_str} | **Sun Zenith:** {live_state['zenith']:.1f}° | **Sun Azimuth:** {live_state['azimuth']:.1f}°")
 
 st.markdown("---")
@@ -209,7 +206,7 @@ p2.metric("⚙️ Tilt Actuation Energy", f"{total_tilt_kWh:.2f} kWh")
 p3.metric("🔋 Total Parasitic Overhead", f"{total_parasitic_kWh:.2f} kWh")
 
 # ---------------------------------------------------------
-# 2D PHYSICAL PANEL & FLUID DYNAMICS VISUALIZER (SMOOTH DIURNAL SUN ARC)
+# 2D PHYSICAL PANEL & FLUID DYNAMICS VISUALIZER
 # ---------------------------------------------------------
 st.markdown("---")
 st.subheader("🖥️ Physical Panel Twin & Fluid Dynamics")
@@ -219,7 +216,6 @@ tilt_rad = np.radians(tilt_deg)
 panel_len = 4.0
 pivot_y = 1.5
 
-# Smooth diurnal hour-fraction mapping (6 AM to 6 PM across sky arc)
 hour_fraction = now_ist.hour + now_ist.minute / 60.0
 sun_x = np.clip((hour_fraction - 12.0) / 6.0 * 5.0, -5.0, 5.0)
 sun_angle_progress = np.pi * np.clip((hour_fraction - 6.0) / 12.0, 0.0, 1.0)
@@ -228,13 +224,13 @@ sun_y = 5.0 * np.sin(sun_angle_progress) + 0.5
 dx = (panel_len / 2.0) * np.cos(tilt_rad)
 dy = (panel_len / 2.0) * np.sin(tilt_rad)
 
-# Keep panel position anchored, facing the sun smoothly
+# Correct tilt orientation matching sun side
 if sun_x < 0:
     px = [-dx, dx]
-    py = [pivot_y + dy, pivot_y - dy]
+    py = [pivot_y + dy, pivot_y - dy]  # Left side tilts up toward sun
 else:
     px = [-dx, dx]
-    py = [pivot_y - dy, pivot_y + dy]
+    py = [pivot_y - dy, pivot_y + dy]  # Right side tilts up toward sun
 
 fig_twin = go.Figure()
 arc_theta = np.linspace(0, np.pi, 50)
