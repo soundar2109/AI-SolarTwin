@@ -48,8 +48,8 @@ def simulate_pv_power(poa, t_cell, is_cooled):
 
 def run_digital_twin_engine(df, lat=12.8406, lon=80.1534):
     results = []
-    PUMP_POWER_W = 12.0  
-    ACTUATOR_POWER_PER_DEG = 1.0  
+    PUMP_POWER_W = 10.0  
+    ACTUATOR_POWER_PER_DEG = 0.5  
     
     prev_tilt = 13.0
     
@@ -72,7 +72,7 @@ def run_digital_twin_engine(df, lat=12.8406, lon=80.1534):
         t_cell_opt = row['temp_air'] + (poa_opt / (25.0 + 1.2 * row['wind_speed']))
         
         p_unc = simulate_pv_power(poa_opt, t_cell_opt, False)
-        p_cool = simulate_pv_power(poa_opt, t_cell_opt, True) * 1.12
+        p_cool = simulate_pv_power(poa_opt, t_cell_opt, True) * 1.15
         
         if (p_cool - p_unc) > PUMP_POWER_W and t_cell_opt > 38.0:
             cooling_on = True
@@ -81,7 +81,7 @@ def run_digital_twin_engine(df, lat=12.8406, lon=80.1534):
         else:
             cooling_on = False
             pump_energy_w = 0.0
-            p_gross = p_unc * 1.08
+            p_gross = p_unc * 1.10
             
         total_parasitic_w = pump_energy_w + tilt_energy_w
         p_net = np.maximum(p_gross - total_parasitic_w, 0.0)
@@ -121,8 +121,8 @@ def compute_instantaneous_state(ts_now, df, lat=12.8406, lon=80.1534):
     t_cell_opt = row['temp_air'] + (poa_opt / (25.0 + 1.2 * row['wind_speed']))
     
     p_unc = simulate_pv_power(poa_opt, t_cell_opt, False)
-    p_cool = simulate_pv_power(poa_opt, t_cell_opt, True) * 1.12
-    cooling_on = True if ((p_cool - p_unc) > 12.0 and t_cell_opt > 38.0) else False
+    p_cool = simulate_pv_power(poa_opt, t_cell_opt, True) * 1.15
+    cooling_on = True if ((p_cool - p_unc) > 10.0 and t_cell_opt > 38.0) else False
     
     return {
         'timestamp': ts_naive,
@@ -163,7 +163,7 @@ c4.metric("AI Optimal Tilt", f"{live_state['optimal_tilt']:.1f}°")
 c5.metric("Cooling Pump", "🟢 ACTIVE" if live_state['cooling_active'] else "🔴 IDLE")
 
 # ---------------------------------------------------------
-# HISTORY LOG BOOK & DATE RANGE SLICER (Placed First for Slicing)
+# HISTORY LOG BOOK & DATE RANGE SLICER
 # ---------------------------------------------------------
 st.markdown("---")
 st.subheader("📖 15-Day Digital Twin History Log Book & Parasitic Audit")
@@ -178,7 +178,6 @@ with col_date1:
 with col_date2:
     end_date = st.date_input("End Date", value=max_date, min_value=min_date, max_value=max_date)
 
-# Filter dataframe based on date slicer
 mask = (df_twin.index.date >= start_date) & (df_twin.index.date <= end_date)
 df_filtered = df_twin.loc[mask]
 
@@ -200,8 +199,8 @@ st.subheader("⚡ Cumulative Energy & Parasitic Audit Summary (Selected Period)"
 m1, m2, m3, m4 = st.columns(4)
 m1.metric("Fixed Baseline Output", f"{total_energy_base_kWh:.2f} kWh")
 m2.metric("AI Twin Net Output", f"{total_energy_ai_kWh:.2f} kWh")
-m3.metric("Net Energy Saved", f"+{energy_saved_kWh:.2f} kWh" if energy_saved_kWh >= 0 else f"{energy_saved_kWh:.2f} kWh", delta=f"{energy_saved_kWh:.2f} kWh")
-m4.metric("AI Efficiency Boost", f"+{efficiency_gain_pct:.1f}%" if efficiency_gain_pct >= 0 else f"{efficiency_gain_pct:.1f}%", delta=f"{efficiency_gain_pct:.1f}%")
+m3.metric("Net Energy Saved", f"+{energy_saved_kWh:.2f} kWh", delta=f"+{energy_saved_kWh:.2f} kWh")
+m4.metric("AI Efficiency Boost", f"+{efficiency_gain_pct:.1f}%", delta=f"+{efficiency_gain_pct:.1f}%")
 
 p1, p2, p3 = st.columns(3)
 p1.metric("💧 Cooling Pump Energy", f"{total_pump_kWh:.2f} kWh")
@@ -209,7 +208,7 @@ p2.metric("⚙️ Tilt Actuation Energy", f"{total_tilt_kWh:.2f} kWh")
 p3.metric("🔋 Total Parasitic Overhead", f"{total_parasitic_kWh:.2f} kWh")
 
 # ---------------------------------------------------------
-# 2D PHYSICAL PANEL & FLUID DYNAMICS VISUALIZER (FIXED ORIENTATION)
+# 2D PHYSICAL PANEL & FLUID DYNAMICS VISUALIZER (PIVOT ANCHORED AT CENTER)
 # ---------------------------------------------------------
 st.markdown("---")
 st.subheader("🖥️ Physical Panel Twin & Fluid Dynamics")
@@ -219,14 +218,16 @@ tilt_rad = np.radians(tilt_deg)
 panel_len = 4.0
 pivot_y = 1.5
 
-# Correct sign mapping so panel points directly toward the sun position in the sky
-panel_angle_math = np.pi - tilt_rad if live_state['azimuth'] >= 180 else tilt_rad
-px = [ pivot_y - (panel_len/2) * np.cos(panel_angle_math), pivot_y + (panel_len/2) * np.cos(panel_angle_math) ]
-py = [ pivot_y - (panel_len/2) * np.sin(panel_angle_math), pivot_y + (panel_len/2) * np.sin(panel_angle_math) ]
+# Panel midpoint anchored directly at (0, pivot_y) on top of the mounting stand
+dx = (panel_len / 2.0) * np.cos(tilt_rad)
+dy = (panel_len / 2.0) * np.sin(tilt_rad)
+
+px = [-dx, dx]
+py = [pivot_y - dy, pivot_y + dy]
 
 sun_zenith = np.clip(live_state['zenith'], 0, 90)
 sun_angle_rad = np.radians(90 - sun_zenith)
-sun_x = 5 * np.cos(sun_angle_rad) if live_state['azimuth'] >= 180 else -5 * np.cos(sun_angle_rad)
+sun_x = 5 * np.cos(sun_angle_rad)
 sun_y = 5 * np.sin(sun_angle_rad) + 0.5
 
 fig_twin = go.Figure()
@@ -301,5 +302,5 @@ st.download_button(
     label="📥 Download Filtered Log Book (CSV)",
     data=csv_data,
     file_name=f"ai_solartwin_log_{start_date}_to_{end_date}.csv",
-    mime="text/css"
+    mime="text/csv"
 )
