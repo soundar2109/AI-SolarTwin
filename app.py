@@ -209,7 +209,7 @@ p2.metric("⚙️ Tilt Actuation Energy", f"{total_tilt_kWh:.2f} kWh")
 p3.metric("🔋 Total Parasitic Overhead", f"{total_parasitic_kWh:.2f} kWh")
 
 # ---------------------------------------------------------
-# 2D PHYSICAL PANEL & FLUID DYNAMICS VISUALIZER
+# 2D PHYSICAL PANEL & FLUID DYNAMICS VISUALIZER (SMOOTH DIURNAL SUN ARC)
 # ---------------------------------------------------------
 st.markdown("---")
 st.subheader("🖥️ Physical Panel Twin & Fluid Dynamics")
@@ -219,20 +219,16 @@ tilt_rad = np.radians(tilt_deg)
 panel_len = 4.0
 pivot_y = 1.5
 
-sun_zenith = np.clip(live_state['zenith'], 0, 90)
-sun_azimuth = live_state['azimuth']
-sun_angle_rad = np.radians(90 - sun_zenith)
-
-if sun_azimuth < 180:
-    sun_x = -5 * np.cos(sun_angle_rad)
-else:
-    sun_x = 5 * np.cos(sun_angle_rad)
-
-sun_y = 5 * np.sin(sun_angle_rad) + 0.5
+# Smooth diurnal hour-fraction mapping (6 AM to 6 PM across sky arc)
+hour_fraction = now_ist.hour + now_ist.minute / 60.0
+sun_x = np.clip((hour_fraction - 12.0) / 6.0 * 5.0, -5.0, 5.0)
+sun_angle_progress = np.pi * np.clip((hour_fraction - 6.0) / 12.0, 0.0, 1.0)
+sun_y = 5.0 * np.sin(sun_angle_progress) + 0.5
 
 dx = (panel_len / 2.0) * np.cos(tilt_rad)
 dy = (panel_len / 2.0) * np.sin(tilt_rad)
 
+# Keep panel position anchored, facing the sun smoothly
 if sun_x < 0:
     px = [-dx, dx]
     py = [pivot_y + dy, pivot_y - dy]
@@ -312,5 +308,5 @@ st.download_button(
     label="📥 Download Filtered Log Book (CSV)",
     data=csv_data,
     file_name=f"ai_solartwin_log_{start_date}_to_{end_date}.csv",
-    mime="text/csv"
+    mime="text/css"
 )
