@@ -208,7 +208,7 @@ p2.metric("⚙️ Tilt Actuation Energy", f"{total_tilt_kWh:.2f} kWh")
 p3.metric("🔋 Total Parasitic Overhead", f"{total_parasitic_kWh:.2f} kWh")
 
 # ---------------------------------------------------------
-# 2D PHYSICAL PANEL & FLUID DYNAMICS VISUALIZER (PIVOT ANCHORED AT CENTER)
+# 2D PHYSICAL PANEL & FLUID DYNAMICS VISUALIZER (SUN-FACING FIX)
 # ---------------------------------------------------------
 st.markdown("---")
 st.subheader("🖥️ Physical Panel Twin & Fluid Dynamics")
@@ -218,17 +218,21 @@ tilt_rad = np.radians(tilt_deg)
 panel_len = 4.0
 pivot_y = 1.5
 
-# Panel midpoint anchored directly at (0, pivot_y) on top of the mounting stand
-dx = (panel_len / 2.0) * np.cos(tilt_rad)
-dy = (panel_len / 2.0) * np.sin(tilt_rad)
-
-px = [-dx, dx]
-py = [pivot_y - dy, pivot_y + dy]
-
 sun_zenith = np.clip(live_state['zenith'], 0, 90)
 sun_angle_rad = np.radians(90 - sun_zenith)
 sun_x = 5 * np.cos(sun_angle_rad)
 sun_y = 5 * np.sin(sun_angle_rad) + 0.5
+
+dx = (panel_len / 2.0) * np.cos(tilt_rad)
+dy = (panel_len / 2.0) * np.sin(tilt_rad)
+
+# Flip panel slope orientation depending on sun position so it always tilts towards the sun
+if sun_x < 0:
+    px = [-dx, dx]
+    py = [pivot_y - dy, pivot_y + dy]
+else:
+    px = [dx, -dx]
+    py = [pivot_y + dy, pivot_y - dy]
 
 fig_twin = go.Figure()
 arc_theta = np.linspace(0, np.pi, 50)
