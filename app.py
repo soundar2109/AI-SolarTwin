@@ -1,6 +1,5 @@
-# 1. Install required packages
-!pip install pvlib openmeteo-requests requests-cache retry-requests pandas numpy plotly -q
 
+import streamlit as st
 import pandas as pd
 import numpy as np
 import requests
