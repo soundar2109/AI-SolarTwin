@@ -136,6 +136,22 @@ def compute_instantaneous_state(ts_now, df, lat=12.8406, lon=80.1534):
     }
 
 # ---------------------------------------------------------
+# API ENDPOINT FOR ESP8266 HARDWARE SYNC
+# ---------------------------------------------------------
+query_params = st.query_params
+if "api" in query_params:
+    df_raw = fetch_open_meteo_live()
+    now_ist = pd.Timestamp.now(tz='Asia/Kolkata')
+    live_state = compute_instantaneous_state(now_ist, df_raw)
+    
+    st.json({
+        "optimal_tilt": float(live_state["optimal_tilt"]),
+        "cooling_active": bool(live_state["cooling_active"]),
+        "ambient_temp": float(live_state["temp_air"])
+    })
+    st.stop()
+
+# ---------------------------------------------------------
 # UI STREAMLIT RENDERER
 # ---------------------------------------------------------
 st.title("☀️ AI SolarTwin: Sensorless Digital Twin Dashboard")
