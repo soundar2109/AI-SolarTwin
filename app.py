@@ -6,6 +6,7 @@ from plotly.subplots import make_subplots
 import pvlib
 from pvlib import irradiance, solarposition
 import requests
+import streamlit as st
 
 st.set_page_config(
     page_title="AI SolarTwin | Digital Twin Dashboard",
